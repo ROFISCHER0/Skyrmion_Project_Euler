@@ -6,26 +6,8 @@ import imageio.v3 as iio
 import os
 import time
 
-# Model parameters
-L = 15     # Lattice size L x L
-J = 1      # Ferromagnetic exchange
-D = 0.5     # Interfacial Dzyaloshinskii-Moriya Interaction (DMI)
-
-# Dimensionless parameters from Gongordu PRB 2016 phase diagrams 
-# (e.g. Figure 3 for Rashba/Dresselhaus)
-h_scaled = 1.5  # Magnetic field (H*J / D^2). Try 0.8 for SkX phase.
-a_scaled = -0.5 # Easy-plane anisotropy (As*J / D^2). Try -0.2 for SkX phase.
-
-# Calculate physical parameters B and A from the scaled parameters
-B = h_scaled * (D**2 / J)    # External magnetic field along z-axis
-A = a_scaled * (D**2 / J)    # Anisotropy constant (easy-plane for A>0, easy-axis for A<0)
-T = 0.01      # Target Temperature (in units where kB=1)
-
-disp_mode = "quiver"
-# Colormap for the spins where 0 isn't white. 
-# Suggestions: 'viridis' (blue-green-yellow), 'plasma' (purple-orange-yellow), 
-#              'magma' (black-red-yellow), 'twilight' (cyclic, no white at 0), 'bwr' (blue-white-red)
-arrow_cmap = "magma" 
+# Constants and configuration parameters have been moved inside the run_simulation function.
+# This prevents global state lock-in and allows execution in loops for phase diagrams.
 
 @nb.njit
 def get_energy_diff(spins, ix, iy, S_new, L, J, D, B, A):
@@ -112,7 +94,7 @@ def initialize_spins(L, state="ferro"):
                 spins[i, j] = [r*np.cos(phi), r*np.sin(phi), z]
     return spins
 
-def plot_spins(spins, step, current_T, display_mode="heatmap", cmap_name="bwr"):
+def plot_spins(spins, step, current_T, display_mode="quiver", cmap_name="bwr"):
     """Plot the spins as arrows in the xy plane."""
     plt.clf()
     L = spins.shape[0]
@@ -146,52 +128,140 @@ def plot_spins(spins, step, current_T, display_mode="heatmap", cmap_name="bwr"):
     plt.gca().set_aspect('equal')
     plt.pause(0.01)
 
-def run_simulation(save_mp4=True, video_filename="skyrmions.mp4", dpi=300, display_mode="heatmap", cmap_name="bwr"):
-    # Determine the directory where this script lives
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, video_filename)
+def run_simulation(
+    L=15, J=1.0, D=0.5, h_scaled=1.5, a_scaled=-0.5,
+    T_start=1.0, T_target=0.01, steps=10000, 
+    cooling_protocol="continuous", initial_spins=None,
+    enable_plotting=False, save_mp4=False, 
+    video_filename=None, output_filename="final_spins.npy", 
+    dpi=300, display_mode="quiver", cmap_name="bwr"
+):
+    """
+    Run the Monte Carlo Metropolis simulation for magnetic skyrmions.
+    
+    Parameters:
+    - cooling_protocol: "continuous", "stepwise", or "constant"
+    - initial_spins: Provide a 3D numpy array to start from a specific configuration
+    """
+    # Calculate physical parameters B and A from the scaled parameters
+    B = h_scaled * (D**2 / J)
+    A = a_scaled * (D**2 / J)
 
-    # Initialize
-    spins = initialize_spins(L, "random") # Start random to anneal down
+    # Determine paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    print("Starting simulation... Preparing Numba JIT (may take a moment)")
+    output_path = os.path.join(script_dir, output_filename) if output_filename else None
     
-    if not save_mp4:
-        plt.ion()
-    fig = plt.figure(figsize=(6, 5))
+    if not video_filename:
+        video_filename = f"skyrmions_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.mp4"
+    video_path = os.path.join(script_dir, video_filename)
+
+    # Initialize spin lattice
+    if initial_spins is not None:
+        spins = np.copy(initial_spins)
+        if spins.shape != (L, L, 3):
+            raise ValueError(f"initial_spins shape {spins.shape} does not match L={L}")
+    else:
+        # Start random to anneal down
+        spins = initialize_spins(L, "random")
     
-    steps = 10000
-    plot_every = 100
-    frames = []
+    print("Starting simulation... (Numba JIT compilation may run on first execution)")
+    
+    # Setup visualization elements
+    if enable_plotting:
+        if not save_mp4:
+            plt.ion()
+        fig = plt.figure(figsize=(6, 5))
+        plot_every = max(1, steps // 100) # Save ~100 frames total
+        frames = []
+    else:
+        plot_every = max(1, steps // 10)  # Print to console 10 times during sim
+    
+    # Setup Stepwise Cooling Schedule
+    if cooling_protocol == "stepwise":
+        # Make the number of sweeps per temperature dependent on the number of spins
+        sweeps_per_T = L * L
+        total_t_steps = max(1, steps // sweeps_per_T)
+        t_schedule = np.linspace(T_start, T_target, total_t_steps)
+    else:
+        sweeps_per_T = 1
     
     for step in range(steps):
-        # Annealing phase: cool down from T=1.0 down to target T over the first 6000 steps
-        current_T = T + (1.0 - T) * max(0.0, (6000 - step)/6000.0) 
-        
+        # Determine current temperature based on the selected protocol
+        if cooling_protocol == "continuous":
+            # Cool down from T_start down to T_target over the first 60% of steps
+            annealing_steps = int(steps * 0.6)
+            if step < annealing_steps:
+                current_T = T_target + (T_start - T_target) * ((annealing_steps - step) / annealing_steps)
+            else:
+                current_T = T_target
+                
+        elif cooling_protocol == "stepwise":
+            t_index = min(step // sweeps_per_T, len(t_schedule) - 1)
+            current_T = t_schedule[t_index]
+            
+        elif cooling_protocol == "constant":
+            current_T = T_target
+            
+        else:
+            current_T = T_target # Fallback
+            
+        # Perform 1 Monte Carlo Sweep (L*L random attempts)
         acceptance_rate = mc_step(spins, L, J, D, B, A, current_T)
         
+        # Logging and Visualization
         if step % plot_every == 0:
-            print(f"Step {step:4d} | Acc Rate: {acceptance_rate:.3f} | T: {current_T:.3f}")
-            plot_spins(spins, step, current_T, display_mode=display_mode, cmap_name=cmap_name)
+            print(f"Step {step:5d}/{steps} | Acc Rate: {acceptance_rate:.3f} | T: {current_T:.3f}")
             
-            if save_mp4:
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
-                buf.seek(0)
-                frames.append(iio.imread(buf))
+            if enable_plotting:
+                plot_spins(spins, step, current_T, display_mode=display_mode, cmap_name=cmap_name)
+                
+                if save_mp4:
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
+                    buf.seek(0)
+                    frames.append(iio.imread(buf))
             
-    if not save_mp4:
-        plt.ioff()
-        plt.show()
+    # Teardown & Outputs
+    if enable_plotting:
+        if not save_mp4:
+            plt.ioff()
+            plt.show()
+        else:
+            print(f"Saving animation to {video_path}...")
+            iio.imwrite(video_path, frames, fps=15, codec='libx264')
     else:
-        print(f"Saving animation to {output_path}...")
-        iio.imwrite(output_path, frames, fps=15, codec='libx264')
-        print("Done!")
+        # Avoid popping up un-rendered figures if plotting wasn't enabled
+        pass 
+    if output_path:
+        print(f"Saving final spin configuration to {output_path}...")
+        np.save(output_path, spins)
+    print("Run Complete!")
+    
+    return spins
 
 if __name__ == '__main__':
     time1 = time.time()
-    # You can toggle display_mode between "heatmap" and "quiver"
-    filename = f"skyrmions_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.mp4"
-    run_simulation(save_mp4=True, video_filename=filename, display_mode=disp_mode, cmap_name=arrow_cmap)
+
+    # Example 1: Run a simulation quickly without plotting (e.g., for batch jobs)
+    print("--- Example Run ---")
+    final_spins = run_simulation(
+        L=15, h_scaled=1.0, a_scaled=0.8,
+        steps=10000, cooling_protocol="continuous",
+        enable_plotting=True, save_mp4=False,
+        output_filename=None, cmap_name="viridis"
+    )
+    
+    # -------------------------------------------------------------
+    # Example 2: How you would write a phase diagram script:
+    # -------------------------------------------------------------
+    # for h in [0.5, 1.0, 1.5]:
+    #     for a in [-0.5, 0.0, 0.5]:
+    #         run_simulation(
+    #             L=15, h_scaled=h, a_scaled=a, 
+    #             steps=5000, enable_plotting=False,
+    #             output_filename=f"spins_h{h}_a{a}.npy"
+    #         )
+    
     time2 = time.time()
-    print(f"Time taken: {time2 - time1}")
+    print(f"Total time taken: {time2 - time1:.2f}s")
