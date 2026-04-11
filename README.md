@@ -1,6 +1,6 @@
-# Skyrmion Monte Carlo Simulator
+# Skyrmion LLG Solver & Monte Carlo Simulator
 
-This project contains a highly optimized Python-based Monte Carlo simulator using the Metropolis algorithm to model the formation of magnetic skyrmion lattices.
+This project contains a suite of high-performance Python tools for studying magnetic skyrmions. It includes an optimizer based on the deterministic Landau-Lifshitz-Gilbert (LLG) equation for exact phase stability analysis, and a Monte Carlo simulator using the Metropolis algorithm to model the formation dynamics of magnetic skyrmion lattices.
 
 ## Physics Model
 The classical spin Hamiltonian used to stabilize the skyrmions on a discrete 2D square lattice includes:
@@ -10,9 +10,10 @@ The classical spin Hamiltonian used to stabilize the skyrmions on a discrete 2D 
 * **Uniaxial Anisotropy** ($K$): Easy-axis out-of-plane anisotropy favoring $z$-oriented spins.
 
 ## Features
-* **High Performance**: The energy calculations and Monte Carlo steps are fully compiled to machine code using **Numba** (`@nb.njit`), achieving C-like speeds directly from Python.
-* **Simulated Annealing**: Gradually cools the system from a high-temperature random state down to a target temperature, smoothly nucleating a skyrmion lattice.
-* **Live Visualization & MP4 Export**: Real-time visualization using matplotlib's quiver plots, and automatically captures the structural formation of the lattice to export it as an `mp4` video (via `imageio[ffmpeg]`).
+* **High-Performance LLG Solver**: Numerically integrates the overdamped Landau-Lifshitz-Gilbert (LLG) equation to accurately find exact theoretical magnetic ground states (SkX, SC, SP, FM). Uses a robust Heun (RK2) integrator with fully dynamic spatial scaling, natively compiled with Numba for ~100x speedups.
+* **Topological Phase Diagrams**: Systematically sweep across applied magnetic fields and anisotropy boundaries to construct precise quantitative stability phase diagrams of topological magnetic states.
+* **Monte Carlo Simulated Annealing**: Smoothly cools the system from a high-temperature random state to capture the dynamic thermal nucleation of a skyrmion lattice.
+* **Live Visualization & Video Export**: Both numerical solvers feature real-time Matplotlib integrations utilizing multidimensional quiver plots, alongside automated MP4 video exports for monitoring structural formation.
 
 ## Dependencies
 You can install the required dependencies using `pip`:
@@ -20,9 +21,28 @@ You can install the required dependencies using `pip`:
 pip install -r requirements.txt
 ```
 
-## Running the Simulation
-Simply run the script:
+## Running the Project
+
+**1. Calculate Topological Phase Diagram**
+Generates and plots a full numerical phase diagram comparing the energy densities of various theoretical skyrmion phase configurations (Ansatzes).
+```bash
+python phase_diagram.py --nH 26 --nA 33 --L 32
+```
+
+**2. Deterministic LLG Relaxation**
+Test a specific Hamiltonian parameter set by relaxing analytical ansatz formulations directly.
+```bash
+python LLG_solver.py --H 1.0 --A 0.8 --L 64 --live-plot
+```
+
+**3. Monte Carlo Nucleation**
+Simulate thermal melting and nucleation processes, plotting real-time visualizations.
 ```bash
 python MC_metropolis.py
 ```
-This will open a live matplotlib window showing the annealing process, and will save `skyrmions.mp4` in the project directory when finished.
+
+**4. Periodic Lattice Visualization**
+Load `.npy` spin outputs from any of the numerical solvers to analyze multi-cell periodic states.
+```bash
+python periodic_plotting.py final_spins.npy --tiles 2 --mode quiver
+```

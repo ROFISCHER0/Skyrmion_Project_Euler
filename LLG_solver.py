@@ -352,7 +352,7 @@ def relax_phase(spins, L, H_scaled, A_scaled, phase_name, ax_in=1.0, ay_in=1.0, 
         fig, ax_plot = plt.subplots(figsize=(8,8))
         
         if live_mode == "quiver":
-            tiles_x, tiles_y = 1, 1 # Change here number of tiles that are live plotted
+            tiles_x, tiles_y = 3, 3 # Change here number of tiles that are live plotted
             tiled_spins = np.tile(spins, (tiles_x, tiles_y, 1))
             L_x, L_y = tiled_spins.shape[0], tiled_spins.shape[1]
             X, Y = np.meshgrid(np.arange(L_x), np.arange(L_y))
@@ -383,7 +383,7 @@ def relax_phase(spins, L, H_scaled, A_scaled, phase_name, ax_in=1.0, ay_in=1.0, 
         fig.tight_layout()
         plt.show()
     
-    chunk = 10 if live_plot else max_steps
+    chunk = 100 if live_plot else max_steps
     
     while steps_done < max_steps:
         # Numba executes cleanly in small chunks so we can visualize intermediate states
