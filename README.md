@@ -16,6 +16,8 @@ The classical spin Hamiltonian used to stabilize the skyrmions on a discrete 2D 
 * **Monte Carlo Simulated Annealing**: Smoothly cools the system from a high-temperature random state to capture the dynamic thermal nucleation of a skyrmion lattice.
 * **Live Visualization & Video Export**: Both numerical solvers feature real-time Matplotlib integrations utilizing multidimensional quiver plots, alongside automated MP4 video exports for monitoring structural formation.
 
+The Euler adaptations keep the same Hamiltonian, the same LLG effective field, and the same default SkX / SC / SP ansatz definitions as the original `dkasper25` project. The changes are restricted to execution and output handling for headless batch runs.
+
 ## Dependencies
 You can install the required dependencies using `pip`:
 ```bash
@@ -27,13 +29,13 @@ pip install -r requirements.txt
 **1. Calculate Topological Phase Diagram**
 Generates and plots a full numerical phase diagram comparing the energy densities of various theoretical skyrmion phase configurations (ansatzes). The sweep is headless by default and is designed to be batch-safe on Euler.
 ```bash
-python phase_diagram.py --nH 50 --nA 50 --L 32 --workers 16 --run-name pd_L32_50x50
+python phase_diagram.py --nH 50 --nA 50 --L 32 --workers 48 --run-name pd_L32_50x50
 ```
 
 Outputs are written to:
 * `output/LLG/PhaseDiagramData/<run_name>.npz`: dense grids for the winning phase IDs, energy surfaces, effective lattice constants, and approximate topological charge
 * `output/LLG/PhaseDiagramData/<run_name>.csv`: one row per `(H, A)` point with phase label, energies, and topological-charge summary
-* `output/LLG/PhaseDiagramData/<run_name>.json`: metadata such as resolution, ranges, lattice size, worker count, and ansatz multipliers
+* `output/LLG/PhaseDiagramData/<run_name>.json`: metadata such as resolution, ranges, lattice size, worker count, and the physics-model tag
 * `output/LLG/Graphs/<run_name>.png`: rendered phase-diagram plot
 
 Useful options:
@@ -41,7 +43,6 @@ Useful options:
 * `--workers`: use multiple CPU cores on one node
 * `--chunk-index`, `--chunk-count`: split a large sweep into Slurm-array chunks
 * `--merge-run-name <name>`: merge all chunk files for a finished array sweep
-* `--skx-multiplier`, `--sc-multiplier`, `--sp-multiplier`: increase the number of structured texture periods in the periodic unit cell
 
 Example chunked workflow for a large Euler run:
 ```bash
@@ -53,11 +54,6 @@ python phase_diagram.py --merge-run-name pd_chunks
 Test a specific Hamiltonian parameter set by relaxing analytical ansatz formulations directly. Saved ground states now include the approximate total topological charge.
 ```bash
 python LLG_solver.py --H 1.0 --A 0.8 --L 64 --live-plot
-```
-
-To increase the number of periodic texture periods in the initial ansatz cell:
-```bash
-python LLG_solver.py --H 1.0 --A 0.8 --L 64 --skx-multiplier 2
 ```
 
 **3. Monte Carlo Nucleation**
@@ -85,7 +81,7 @@ export SKYRMION_OUTPUT_ROOT="$SCRATCH/skyrmion_runs"
 ```
 
 This repository includes ready-to-submit job scripts:
-* `scripts/euler_phase_diagram.sbatch`: one multicore node, good for medium sweeps
+* `scripts/euler_phase_diagram.sbatch`: one multicore node, defaulting to 48 CPU cores on Euler
 * `scripts/euler_phase_diagram_array.sbatch`: Slurm array version for large sweeps or limited walltime
 * `scripts/euler_merge_phase_diagram.sbatch`: merge chunk files after the array has finished
 

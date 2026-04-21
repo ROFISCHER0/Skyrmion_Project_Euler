@@ -22,8 +22,9 @@ export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export MPLBACKEND=Agg
 export SKYRMION_OUTPUT_ROOT="${SKYRMION_OUTPUT_ROOT:-$SCRATCH/skyrmion_runs}"
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-${TMPDIR:-/tmp}/numba_cache}"
 
-mkdir -p logs "$SKYRMION_OUTPUT_ROOT"
+mkdir -p logs "$SKYRMION_OUTPUT_ROOT" "$NUMBA_CACHE_DIR"
 
 RUN_NAME="${RUN_NAME:-pd_L32_50x50_chunks}"
 NH="${NH:-50}"
@@ -33,11 +34,8 @@ H_MIN="${H_MIN:-0.0}"
 H_MAX="${H_MAX:-2.5}"
 A_MIN="${A_MIN:--1.5}"
 A_MAX="${A_MAX:-1.7}"
-SKX_MULTIPLIER="${SKX_MULTIPLIER:-1}"
-SC_MULTIPLIER="${SC_MULTIPLIER:-1}"
-SP_MULTIPLIER="${SP_MULTIPLIER:-1}"
 
-python3 phase_diagram.py \
+srun --cpu-bind=cores python3 -u phase_diagram.py \
   --nH "$NH" \
   --nA "$NA" \
   --L "$LATTICE_SIZE" \
@@ -50,7 +48,4 @@ python3 phase_diagram.py \
   --output-root "$SKYRMION_OUTPUT_ROOT" \
   --chunk-index "${SLURM_ARRAY_TASK_ID:-0}" \
   --chunk-count "${SLURM_ARRAY_TASK_COUNT:-1}" \
-  --no-plot \
-  --skx-multiplier "$SKX_MULTIPLIER" \
-  --sc-multiplier "$SC_MULTIPLIER" \
-  --sp-multiplier "$SP_MULTIPLIER"
+  --no-plot

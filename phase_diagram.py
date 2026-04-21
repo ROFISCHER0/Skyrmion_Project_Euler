@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
-from LLG_solver import compare_phases, ensure_parent_dir, get_output_root
+from LLG_solver import compare_phases, ensure_parent_dir, get_output_root, warm_up_numba_kernels
 
 PHASE_MAP = {"SkX": 0, "SC": 1, "SP": 2, "FM": 3}
 PHASE_NAMES = {value: key for key, value in PHASE_MAP.items()}
@@ -44,13 +44,12 @@ def slugify_float(value):
     return f"{value:.3f}".replace("-", "m").replace(".", "p")
 
 
-def build_run_name(n_H, n_A, L, H_min, H_max, A_min, A_max, skx_multiplier, sc_multiplier, sp_multiplier):
+def build_run_name(n_H, n_A, L, H_min, H_max, A_min, A_max):
     """Create a deterministic run identifier suitable for local and cluster runs."""
     return (
         f"phase_diagram_L{L}_H{n_H}_A{n_A}"
         f"_Hr{slugify_float(H_min)}_{slugify_float(H_max)}"
         f"_Ar{slugify_float(A_min)}_{slugify_float(A_max)}"
-        f"_skx{skx_multiplier}_sc{sc_multiplier}_sp{sp_multiplier}"
     )
 
 
@@ -85,7 +84,7 @@ def create_axes(n_H, n_A, H_min, H_max, A_min, A_max):
     return H_vals, A_vals
 
 
-def build_point_tasks(H_vals, A_vals, L, max_dt, cfl_factor, skx_multiplier, sc_multiplier, sp_multiplier):
+def build_point_tasks(H_vals, A_vals, L, max_dt, cfl_factor):
     """Generate independent sweep points that can be distributed across workers or job-array chunks."""
     tasks = []
     n_H = len(H_vals)
@@ -101,9 +100,6 @@ def build_point_tasks(H_vals, A_vals, L, max_dt, cfl_factor, skx_multiplier, sc_
                     int(L),
                     float(max_dt),
                     float(cfl_factor),
-                    int(skx_multiplier),
-                    int(sc_multiplier),
-                    int(sp_multiplier),
                 )
             )
     return tasks
@@ -166,9 +162,6 @@ def compute_point(task):
         L,
         max_dt,
         cfl_factor,
-        skx_multiplier,
-        sc_multiplier,
-        sp_multiplier,
     ) = task
 
     start_time = time.time()
@@ -203,9 +196,6 @@ def compute_point(task):
                 output_root=None,
                 max_dt=max_dt,
                 cfl_factor=cfl_factor,
-                skx_multiplier=skx_multiplier,
-                sc_multiplier=sc_multiplier,
-                sp_multiplier=sp_multiplier,
                 return_details=True,
             )
 
@@ -325,9 +315,6 @@ def save_result_bundle(bundle, H_vals, A_vals, metadata, npz_path, csv_path, jso
         workers=np.array(metadata["workers"]),
         chunk_index=np.array(metadata["chunk_index"]),
         chunk_count=np.array(metadata["chunk_count"]),
-        skx_multiplier=np.array(metadata["skx_multiplier"]),
-        sc_multiplier=np.array(metadata["sc_multiplier"]),
-        sp_multiplier=np.array(metadata["sp_multiplier"]),
         elapsed_seconds=np.array(metadata["elapsed_seconds"]),
         complete=np.array(metadata["complete"]),
         phase_names=np.array(list(PHASE_MAP.keys())),
@@ -376,7 +363,7 @@ def plot_phase_diagram(phase_grid, H_vals, A_vals, out_path, title="Topological 
     plt.close(fig)
 
 
-def build_metadata(run_name, L, H_vals, A_vals, workers, elapsed_seconds, skx_multiplier, sc_multiplier, sp_multiplier, completed_points, chunk_index=None, chunk_count=1):
+def build_metadata(run_name, L, H_vals, A_vals, workers, elapsed_seconds, completed_points, chunk_index=None, chunk_count=1):
     """Standardize metadata across fresh runs and merged runs."""
     total_points = int(len(H_vals) * len(A_vals))
     return {
@@ -393,9 +380,7 @@ def build_metadata(run_name, L, H_vals, A_vals, workers, elapsed_seconds, skx_mu
         "workers": int(workers),
         "chunk_index": -1 if chunk_index is None else int(chunk_index),
         "chunk_count": int(chunk_count),
-        "skx_multiplier": int(skx_multiplier),
-        "sc_multiplier": int(sc_multiplier),
-        "sp_multiplier": int(sp_multiplier),
+        "physics_model": "dkasper25_original_ansatzes",
         "elapsed_seconds": float(elapsed_seconds),
         "complete": bool(completed_points == total_points),
     }
@@ -416,9 +401,6 @@ def generate_phase_diagram(
     chunk_count=1,
     max_dt=0.05,
     cfl_factor=0.25,
-    skx_multiplier=1,
-    sc_multiplier=1,
-    sp_multiplier=1,
     save_plot=True,
 ):
     """
@@ -434,12 +416,9 @@ def generate_phase_diagram(
         H_max=H_max,
         A_min=A_min,
         A_max=A_max,
-        skx_multiplier=skx_multiplier,
-        sc_multiplier=sc_multiplier,
-        sp_multiplier=sp_multiplier,
     )
 
-    all_tasks = build_point_tasks(H_vals, A_vals, L, max_dt, cfl_factor, skx_multiplier, sc_multiplier, sp_multiplier)
+    all_tasks = build_point_tasks(H_vals, A_vals, L, max_dt, cfl_factor)
     selected_tasks = select_chunk(all_tasks, chunk_index=chunk_index, chunk_count=chunk_count)
 
     print("=== Starting Phase Diagram Generation ===")
@@ -447,10 +426,7 @@ def generate_phase_diagram(
     print(f"Grid: {n_A} x {n_H}  |  Total points: {len(all_tasks)}")
     print(f"H range: [{H_min}, {H_max}]  |  A range: [{A_min}, {A_max}]")
     print(f"Lattice size: L={L}  |  Workers: {workers}")
-    print(
-        "Structured-phase multipliers: "
-        f"SkX={skx_multiplier}, SC={sc_multiplier}, SP={sp_multiplier}"
-    )
+    print("Physics model: original dkasper25 Hamiltonian and ansatz definitions")
     if chunk_index is not None:
         print(
             f"Chunk mode enabled: chunk {chunk_index + 1}/{chunk_count} "
@@ -459,6 +435,11 @@ def generate_phase_diagram(
     print("-----------------------------------------")
 
     bundle = empty_result_bundle(n_A, n_H)
+    print("Warming up cached Numba kernels...")
+    try:
+        warm_up_numba_kernels()
+    except Exception as exc:
+        print(f"Numba warm-up skipped; continuing without cached precompile: {exc}")
     start_time = time.time()
     total_selected = len(selected_tasks)
 
@@ -501,9 +482,6 @@ def generate_phase_diagram(
         A_vals=A_vals,
         workers=effective_workers,
         elapsed_seconds=elapsed_seconds,
-        skx_multiplier=skx_multiplier,
-        sc_multiplier=sc_multiplier,
-        sp_multiplier=sp_multiplier,
         completed_points=completed_points,
         chunk_index=chunk_index,
         chunk_count=chunk_count,
@@ -558,9 +536,6 @@ def merge_phase_diagram_chunks(run_name, output_root=None, save_plot=True):
     A_vals = first["A_vals"]
     L = int(first["lattice_size"])
     workers = 0
-    skx_multiplier = int(first["skx_multiplier"])
-    sc_multiplier = int(first["sc_multiplier"])
-    sp_multiplier = int(first["sp_multiplier"])
 
     bundle = empty_result_bundle(len(A_vals), len(H_vals))
     merged_records = []
@@ -600,9 +575,6 @@ def merge_phase_diagram_chunks(run_name, output_root=None, save_plot=True):
         A_vals=A_vals,
         workers=workers,
         elapsed_seconds=total_elapsed,
-        skx_multiplier=skx_multiplier,
-        sc_multiplier=sc_multiplier,
-        sp_multiplier=sp_multiplier,
         completed_points=completed_points,
         chunk_index=None,
         chunk_count=chunk_count_declared,
@@ -649,9 +621,6 @@ def parse_args():
     parser.add_argument("--no-plot", action="store_true", help="Skip PNG generation after computing or merging")
     parser.add_argument("--max-dt", type=float, default=0.05, help="Maximum LLG integration timestep")
     parser.add_argument("--cfl", type=float, default=0.25, help="CFL stability factor for dynamic timestep")
-    parser.add_argument("--skx-multiplier", type=int, default=1, help="Increase the number of SkX texture periods in the periodic cell")
-    parser.add_argument("--sc-multiplier", type=int, default=1, help="Increase the number of SC texture periods in the periodic cell")
-    parser.add_argument("--sp-multiplier", type=int, default=1, help="Increase the number of SP texture periods in the periodic cell")
     return parser.parse_args()
 
 
@@ -678,8 +647,5 @@ if __name__ == "__main__":
             chunk_count=args.chunk_count,
             max_dt=args.max_dt,
             cfl_factor=args.cfl,
-            skx_multiplier=args.skx_multiplier,
-            sc_multiplier=args.sc_multiplier,
-            sp_multiplier=args.sp_multiplier,
             save_plot=not args.no_plot,
         )

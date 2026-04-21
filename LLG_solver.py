@@ -11,21 +11,13 @@ if not os.environ.get("DISPLAY"):
 # Part A: Ansatz Generators
 # ---------------------------------------------------------
 
-def _validate_period_multiplier(name, value):
-    """Validate integer texture-density multipliers used in periodic ansatze."""
-    if int(value) != value or int(value) < 1:
-        raise ValueError(f"{name} must be a positive integer, got {value!r}")
-    return int(value)
-
-
-def init_SkX(L, Q=1, gamma=0.0, period_multiplier=1):
+def init_SkX(L, Q=1, gamma=0.0):
     """
     Hexagonal 3Q Skyrmion Lattice (SkX) Ansatz
     A proper vector superposition of three cycloids to form an exact hexagonal lattice.
     Mapped onto physical coordinates [-L_x/2, L_x/2] and [-L_y/2, L_y/2].
     Returns spins, ax, ay
     """
-    period_multiplier = _validate_period_multiplier("period_multiplier", period_multiplier)
     spins = np.zeros((L, L, 3))
     
     ax = np.pi / L
@@ -34,7 +26,7 @@ def init_SkX(L, Q=1, gamma=0.0, period_multiplier=1):
     # We use q=4.0 so that exactly two complementary skyrmions precisely fit 
     # the periodic rectangular unit cell (L_x = pi, L_y = pi/sqrt(3)).
     # Dynamic scaling (ax, ay) during LLG will natively expand this to the optimal physical period.
-    q_ansatz = 4.0 * period_multiplier
+    q_ansatz = 4.0
     
     # Base offset to ensure SkX background matches the FM -z state for stability
     # Superposition varies from -1.5 to +3.0. A -1.5 offset makes it vary from -3.0 to +1.5.
@@ -68,20 +60,19 @@ def init_SkX(L, Q=1, gamma=0.0, period_multiplier=1):
                 
     return spins, ax, ay
 
-def init_SP(L, period_multiplier=1):
+def init_SP(L):
     """
     Spiral Phase (SP) Ansatz
     Mapped onto physical coordinates [0, L_x] and [0, L_y].
     Returns spins, ax, ay
     """
-    period_multiplier = _validate_period_multiplier("period_multiplier", period_multiplier)
     spins = np.zeros((L, L, 3))
     
     ax = np.pi / L
     ay = np.pi / L
     
     # We use q=2.0 since the cos/sin phase arrangement naturally yields negative DMI
-    q = 2.0 * period_multiplier
+    q = 2.0
     
     for i in range(L):
         for j in range(L):
@@ -92,20 +83,19 @@ def init_SP(L, period_multiplier=1):
             
     return spins, ax, ay
 
-def init_SC(L, period_multiplier=1):
+def init_SC(L):
     """
     Square Cell (SC) Vortex-Antivortex Phase Ansatz
     Mapped onto physical coordinates [0, L_x] and [0, L_y].
     Returns spins, ax, ay
     """
-    period_multiplier = _validate_period_multiplier("period_multiplier", period_multiplier)
     spins = np.zeros((L, L, 3))
     
     ax = (np.pi / 2.0) / L
     ay = (np.pi / 2.0) / L
     
     # We use q=4.0 (+4.0) because the user's specific sin/cos permutation natively yields negative DMI
-    q = 4.0 * period_multiplier
+    q = 4.0
     
     for i in range(L):
         for j in range(L):
@@ -413,6 +403,30 @@ def compute_topological_charge(spins, ax, ay):
     """Python wrapper around the cached Numba topological charge kernel."""
     return float(compute_topological_charge_numba(spins, ax, ay))
 
+
+def warm_up_numba_kernels():
+    """
+    Compile the LLG kernels once in the parent process so Euler worker forks can
+    reuse the compiled code without changing any solver behavior.
+    """
+    spins = np.zeros((2, 2, 3), dtype=np.float64)
+    spins[:, :, 2] = 1.0
+    relax_phase_numba(
+        spins=spins,
+        L=2,
+        H_scaled=0.1,
+        A_scaled=0.1,
+        max_steps=1,
+        tol=0.0,
+        ax_in=1.0,
+        ay_in=1.0,
+        prev_f_in=0.0,
+        max_dt=0.05,
+        cfl_factor=0.25,
+        global_step_start=0,
+    )
+    compute_topological_charge_numba(spins, 1.0, 1.0)
+
 # ---------------------------------------------------------
 # Part D & E: Execution Wrapper
 # ---------------------------------------------------------
@@ -534,26 +548,23 @@ def get_FM_energy(H_scaled, A_scaled):
             
     return min(e_aligned, e_anti_aligned, e_tilted)
 
-def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz=False, live_plot=False, live_mode="quiver", max_dt=0.05, cfl_factor=0.25, visualize_scaling=False, plot_groundstate=False, save_outputs=True, output_root=None, skx_multiplier=1, sc_multiplier=1, sp_multiplier=1, return_details=False):
+def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz=False, live_plot=False, live_mode="quiver", max_dt=0.05, cfl_factor=0.25, visualize_scaling=False, plot_groundstate=False, save_outputs=True, output_root=None, return_details=False):
     """
     Main Execution: Tests SkX, SP, and FM to find the true numerical ground state.
     """
     print(f"--- Phase Stability Analysis H={H_scaled}, As={A_scaled} ---")
     results = {}
-    skx_multiplier = _validate_period_multiplier("skx_multiplier", skx_multiplier)
-    sc_multiplier = _validate_period_multiplier("sc_multiplier", sc_multiplier)
-    sp_multiplier = _validate_period_multiplier("sp_multiplier", sp_multiplier)
     output_root = get_output_root(output_root)
     ansatz_dir = output_root / "LLG" / "Ansatze"
     groundstate_dir = output_root / "LLG" / "Groundstates"
     
     # 1. Skyrmion Lattice
     print("Initializing SkX...")
-    spins_skx, ax_skx, ay_skx = init_SkX(L, period_multiplier=skx_multiplier)
+    spins_skx, ax_skx, ay_skx = init_SkX(L)
     skx_ansatz_path = ansatz_dir / "ansatz_SkX.npz"
     if save_outputs or plot_ansatz:
         ensure_parent_dir(skx_ansatz_path)
-        np.savez(skx_ansatz_path, spins=spins_skx, ax=ax_skx, ay=ay_skx, period_multiplier=skx_multiplier)
+        np.savez(skx_ansatz_path, spins=spins_skx, ax=ax_skx, ay=ay_skx)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
@@ -565,11 +576,11 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
     
     # 2. Square Cell 
     print("Initializing SC...")
-    spins_sc, ax_sc, ay_sc = init_SC(L, period_multiplier=sc_multiplier)
+    spins_sc, ax_sc, ay_sc = init_SC(L)
     sc_ansatz_path = ansatz_dir / "ansatz_SC.npz"
     if save_outputs or plot_ansatz:
         ensure_parent_dir(sc_ansatz_path)
-        np.savez(sc_ansatz_path, spins=spins_sc, ax=ax_sc, ay=ay_sc, period_multiplier=sc_multiplier)
+        np.savez(sc_ansatz_path, spins=spins_sc, ax=ax_sc, ay=ay_sc)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
@@ -581,11 +592,11 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
     
     # 3. Spiral Phase
     print("Initializing SP...")
-    spins_sp, ax_sp, ay_sp = init_SP(L, period_multiplier=sp_multiplier)
+    spins_sp, ax_sp, ay_sp = init_SP(L)
     sp_ansatz_path = ansatz_dir / "ansatz_SP.npz"
     if save_outputs or plot_ansatz:
         ensure_parent_dir(sp_ansatz_path)
-        np.savez(sp_ansatz_path, spins=spins_sp, ax=ax_sp, ay=ay_sp, period_multiplier=sp_multiplier)
+        np.savez(sp_ansatz_path, spins=spins_sp, ax=ax_sp, ay=ay_sp)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
@@ -672,9 +683,6 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
                 H_scaled=H_scaled,
                 A_scaled=A_scaled,
                 lattice_size=L,
-                skx_multiplier=skx_multiplier,
-                sc_multiplier=sc_multiplier,
-                sp_multiplier=sp_multiplier,
             )
             print(f"Saved numerical ground state to '{out_name}'")
         
@@ -699,9 +707,6 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
             "ax": float(best_ax),
             "ay": float(best_ay),
             "topological_charge": float(topological_charge),
-            "skx_multiplier": int(skx_multiplier),
-            "sc_multiplier": int(sc_multiplier),
-            "sp_multiplier": int(sp_multiplier),
             "energies": {key: float(val) for key, val in results.items()},
             "candidate_energies": {key: float(val) for key, val in candidate_energies.items()},
         }
@@ -723,9 +728,6 @@ if __name__ == "__main__":
     parser.add_argument("--max-dt", type=float, default=0.05, help="Maximum integration timestep")
     parser.add_argument("--cfl", type=float, default=0.25, help="CFL stability factor for dynamic timestep")
     parser.add_argument("--output-root", type=str, default=None, help="Root directory for outputs, e.g. $SCRATCH/skyrmion_runs")
-    parser.add_argument("--skx-multiplier", type=int, default=1, help="Increase the number of SkX texture periods in the periodic unit cell")
-    parser.add_argument("--sc-multiplier", type=int, default=1, help="Increase the number of square-cell texture periods in the periodic unit cell")
-    parser.add_argument("--sp-multiplier", type=int, default=1, help="Increase the number of spiral texture periods in the periodic unit cell")
     
     args = parser.parse_args()
     
@@ -742,7 +744,4 @@ if __name__ == "__main__":
         visualize_scaling=args.vis_scale,
         plot_groundstate=args.plot_groundstate,
         output_root=args.output_root,
-        skx_multiplier=args.skx_multiplier,
-        sc_multiplier=args.sc_multiplier,
-        sp_multiplier=args.sp_multiplier,
     )

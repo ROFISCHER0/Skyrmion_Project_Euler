@@ -17,11 +17,12 @@ fi
 
 export MPLBACKEND=Agg
 export SKYRMION_OUTPUT_ROOT="${SKYRMION_OUTPUT_ROOT:-$SCRATCH/skyrmion_runs}"
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-${TMPDIR:-/tmp}/numba_cache}"
 
-mkdir -p logs "$SKYRMION_OUTPUT_ROOT"
+mkdir -p logs "$SKYRMION_OUTPUT_ROOT" "$NUMBA_CACHE_DIR"
 
 RUN_NAME="${RUN_NAME:-pd_L32_50x50_chunks}"
 
-python3 phase_diagram.py \
+srun --cpu-bind=cores python3 -u phase_diagram.py \
   --merge-run-name "$RUN_NAME" \
   --output-root "$SKYRMION_OUTPUT_ROOT"

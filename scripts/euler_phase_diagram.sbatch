@@ -3,7 +3,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=48
 #SBATCH --mem-per-cpu=2000M
 #SBATCH --output=logs/%x-%j.out
 
@@ -21,8 +21,9 @@ export MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 export MPLBACKEND=Agg
 export SKYRMION_OUTPUT_ROOT="${SKYRMION_OUTPUT_ROOT:-$SCRATCH/skyrmion_runs}"
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-${TMPDIR:-/tmp}/numba_cache}"
 
-mkdir -p logs "$SKYRMION_OUTPUT_ROOT"
+mkdir -p logs "$SKYRMION_OUTPUT_ROOT" "$NUMBA_CACHE_DIR"
 
 RUN_NAME="${RUN_NAME:-pd_L32_50x50}"
 NH="${NH:-50}"
@@ -32,11 +33,8 @@ H_MIN="${H_MIN:-0.0}"
 H_MAX="${H_MAX:-2.5}"
 A_MIN="${A_MIN:--1.5}"
 A_MAX="${A_MAX:-1.7}"
-SKX_MULTIPLIER="${SKX_MULTIPLIER:-1}"
-SC_MULTIPLIER="${SC_MULTIPLIER:-1}"
-SP_MULTIPLIER="${SP_MULTIPLIER:-1}"
 
-python3 phase_diagram.py \
+srun --cpu-bind=cores python3 -u phase_diagram.py \
   --nH "$NH" \
   --nA "$NA" \
   --L "$LATTICE_SIZE" \
@@ -46,7 +44,4 @@ python3 phase_diagram.py \
   --A-max "$A_MAX" \
   --workers "${SLURM_CPUS_PER_TASK:-1}" \
   --run-name "$RUN_NAME" \
-  --output-root "$SKYRMION_OUTPUT_ROOT" \
-  --skx-multiplier "$SKX_MULTIPLIER" \
-  --sc-multiplier "$SC_MULTIPLIER" \
-  --sp-multiplier "$SP_MULTIPLIER"
+  --output-root "$SKYRMION_OUTPUT_ROOT"
