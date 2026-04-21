@@ -152,3 +152,4 @@ if __name__ == "__main__":
             generate_phase_diagram(n_H=args.nH, n_A=args.nA, L=args.L)
     else:
         generate_phase_diagram(n_H=args.nH, n_A=args.nA, L=args.L)
+
