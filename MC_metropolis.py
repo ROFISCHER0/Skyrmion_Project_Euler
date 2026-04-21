@@ -6,9 +6,36 @@ import imageio.v3 as iio
 import os
 import time
 import argparse
+from pathlib import Path
+
+if not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MPLBACKEND", "Agg")
 
 # Constants and configuration parameters have been moved inside the run_simulation function.
 # This prevents global state lock-in and allows execution in loops for phase diagrams.
+
+
+def get_output_root(output_root=None):
+    """Resolve output root for local runs or cluster runs."""
+    if output_root:
+        return Path(output_root).expanduser()
+    env_output_root = os.environ.get("SKYRMION_OUTPUT_ROOT")
+    if env_output_root:
+        return Path(env_output_root).expanduser()
+    return Path(__file__).resolve().parent / "output"
+
+
+def resolve_output_path(path_value, output_root, default_relative_path):
+    """Resolve relative output paths against the chosen output root."""
+    if path_value:
+        candidate = Path(path_value).expanduser()
+        return candidate if candidate.is_absolute() else output_root / candidate
+    return output_root / default_relative_path
+
+
+def ensure_parent_dir(filepath):
+    """Create parent directory for a file path if needed."""
+    Path(filepath).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 @nb.njit
 def get_energy_diff(spins, ix, iy, S_new, L, J, D, B, A):
@@ -131,11 +158,12 @@ def plot_spins(spins, step, current_T, display_mode="quiver", cmap_name="bwr"):
 
 def run_simulation(
     L=15, J=1.0, D=0.5, h_scaled=1.5, a_scaled=-0.5,
-    T_start=1.0, T_target=0.01, steps=10000, 
+    T_start=1.0, T_target=0.01, steps=10000,
     cooling_protocol="continuous", initial_spins=None,
-    enable_plotting=False, save_mp4=False, 
-    video_filename=None, output_filename=None, 
-    dpi=300, display_mode="quiver", cmap_name="bwr"
+    enable_plotting=False, save_mp4=False,
+    video_filename=None, output_filename=None,
+    dpi=300, display_mode="quiver", cmap_name="bwr",
+    output_root=None
 ):
     """
     Run the Monte Carlo Metropolis simulation for magnetic skyrmions.
@@ -149,15 +177,17 @@ def run_simulation(
     A = a_scaled * (D**2 / J)
 
     # Determine paths
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    if not output_filename:
-        output_filename = f"output/MC/npy/final_spins_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.npy"
-    output_path = os.path.join(script_dir, output_filename)
-    
-    if not video_filename:
-        video_filename = f"output/MC/videos/skyrmions_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.mp4"
-    video_path = os.path.join(script_dir, video_filename)
+    output_root = get_output_root(output_root)
+    output_path = resolve_output_path(
+        output_filename,
+        output_root,
+        Path("MC") / "npy" / f"final_spins_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.npy"
+    )
+    video_path = resolve_output_path(
+        video_filename,
+        output_root,
+        Path("MC") / "videos" / f"skyrmions_L{L}_A{a_scaled:.2f}_H{h_scaled:.2f}.mp4"
+    )
 
     # Initialize spin lattice
     if initial_spins is not None:
@@ -231,12 +261,14 @@ def run_simulation(
             plt.ioff()
             plt.show()
         else:
+            ensure_parent_dir(video_path)
             print(f"Saving animation to {video_path}...")
             iio.imwrite(video_path, frames, fps=15, codec='libx264')
     else:
         # Avoid popping up un-rendered figures if plotting wasn't enabled
         pass 
     if output_path:
+        ensure_parent_dir(output_path)
         print(f"Saving final spin configuration to {output_path}...")
         np.save(output_path, spins)
     print("Run Complete!")
@@ -260,6 +292,7 @@ if __name__ == '__main__':
     parser.add_argument("--out-npy", type=str, default=None, help="Output .npy spin configuration filename")
     parser.add_argument("--mode", type=str, choices=["quiver", "heatmap"], default="quiver", help="Display mode for plotting")
     parser.add_argument("--cmap", type=str, default="bwr", help="Colormap for plotting")
+    parser.add_argument("--output-root", type=str, default=None, help="Root directory for outputs, e.g. $SCRATCH/skyrmion_runs")
     
     args = parser.parse_args()
 
@@ -269,10 +302,11 @@ if __name__ == '__main__':
     final_spins = run_simulation(
         L=args.L, J=args.J, D=args.D, h_scaled=args.H, a_scaled=args.A,
         T_start=args.T_start, T_target=args.T_target, steps=args.steps,
-        cooling_protocol=args.protocol, 
+        cooling_protocol=args.protocol,
         enable_plotting=args.plot, save_mp4=args.save_mp4,
         video_filename=args.video_file, output_filename=args.out_npy,
-        display_mode=args.mode, cmap_name=args.cmap
+        display_mode=args.mode, cmap_name=args.cmap,
+        output_root=args.output_root
     )
     
     time2 = time.time()
