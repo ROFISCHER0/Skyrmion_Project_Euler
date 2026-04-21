@@ -1,15 +1,18 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import numba as nb
 import io
 import imageio.v3 as iio
 import os
 import time
 import argparse
+import tempfile
 from pathlib import Path
 
 if not os.environ.get("DISPLAY"):
     os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / f"matplotlib-{os.getuid()}"))
+
+import matplotlib.pyplot as plt
 
 # Constants and configuration parameters have been moved inside the run_simulation function.
 # This prevents global state lock-in and allows execution in loops for phase diagrams.
@@ -37,7 +40,7 @@ def ensure_parent_dir(filepath):
     """Create parent directory for a file path if needed."""
     Path(filepath).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
-@nb.njit
+@nb.njit(cache=True)
 def get_energy_diff(spins, ix, iy, S_new, L, J, D, B, A):
     """
     Calculate the energy difference for a proposed spin change at (ix, iy).
@@ -78,14 +81,14 @@ def get_energy_diff(spins, ix, iy, S_new, L, J, D, B, A):
     
     return dE_ex + dE_dmi + dE_Z + dE_A
 
-@nb.njit
+@nb.njit(cache=True)
 def cone_step(S, max_angle=0.2):
     """Propose a new spin by slightly perturbing the current spin."""
     S_new = S + (np.random.rand(3) - 0.5) * max_angle
     norm = np.linalg.norm(S_new)
     return S_new / norm
 
-@nb.njit
+@nb.njit(cache=True)
 def mc_step(spins, L, J, D, B, A, T):
     """Perform one full Monte Carlo sweep linearly over the lattice."""
     accepted = 0

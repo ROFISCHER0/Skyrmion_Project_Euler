@@ -1,7 +1,14 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import argparse
 import os
+import tempfile
+from pathlib import Path
+
+if not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / f"matplotlib-{os.getuid()}"))
+
+import matplotlib.pyplot as plt
 
 def plot_periodic_structure(spins_file, tiles_x=2, tiles_y=2, display_mode="quiver", cmap="coolwarm", scale_factor=0.8, ax=1.0, ay=1.0):
     """
@@ -88,4 +95,3 @@ if __name__ == "__main__":
         ax=args.ax,
         ay=args.ay
     )
-
