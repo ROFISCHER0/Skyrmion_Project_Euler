@@ -2,6 +2,10 @@ import numpy as np
 import numba as nb
 import argparse
 import os
+from pathlib import Path
+
+if not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MPLBACKEND", "Agg")
 
 # ---------------------------------------------------------
 # Part A: Ansatz Generators
@@ -141,6 +145,21 @@ def load_ansatz(filepath, L):
     if spins.shape != (L, L, 3):
         raise ValueError(f"Shape mismatch: {spins.shape} vs {(L, L, 3)}")
     return spins, ax, ay
+
+
+def get_output_root(output_root=None):
+    """Resolve output root for local runs or cluster runs."""
+    if output_root:
+        return Path(output_root).expanduser()
+    env_output_root = os.environ.get("SKYRMION_OUTPUT_ROOT")
+    if env_output_root:
+        return Path(env_output_root).expanduser()
+    return Path(__file__).resolve().parent / "output"
+
+
+def ensure_parent_dir(filepath):
+    """Create parent directory for a file path if needed."""
+    Path(filepath).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------
 # Part B & C: Energy, Effective Field, and LLG step
@@ -463,23 +482,28 @@ def get_FM_energy(H_scaled, A_scaled):
             
     return min(e_aligned, e_anti_aligned, e_tilted)
 
-def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz=False, live_plot=False, live_mode="quiver", max_dt=0.05, cfl_factor=0.25, visualize_scaling=False, plot_groundstate=False, save_outputs=True):
+def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz=False, live_plot=False, live_mode="quiver", max_dt=0.05, cfl_factor=0.25, visualize_scaling=False, plot_groundstate=False, save_outputs=True, output_root=None):
     """
     Main Execution: Tests SkX, SP, and FM to find the true numerical ground state.
     """
     print(f"--- Phase Stability Analysis H={H_scaled}, As={A_scaled} ---")
     results = {}
+    output_root = get_output_root(output_root)
+    ansatz_dir = output_root / "LLG" / "Ansatze"
+    groundstate_dir = output_root / "LLG" / "Groundstates"
     
     # 1. Skyrmion Lattice
     print("Initializing SkX...")
     spins_skx, ax_skx, ay_skx = init_SkX(L)
+    skx_ansatz_path = ansatz_dir / "ansatz_SkX.npz"
     if save_outputs or plot_ansatz:
-        np.savez("output/LLG/Ansatze/ansatz_SkX.npz", spins=spins_skx, ax=ax_skx, ay=ay_skx)
+        ensure_parent_dir(skx_ansatz_path)
+        np.savez(skx_ansatz_path, spins=spins_skx, ax=ax_skx, ay=ay_skx)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
             print("Displaying SkX Ansatz...")
-            plot_periodic_structure("output/LLG/Ansatze/ansatz_SkX.npz", tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_skx, ay=ay_skx)
+            plot_periodic_structure(str(skx_ansatz_path), tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_skx, ay=ay_skx)
         except: pass
     spins_skx, f_skx, final_ax_skx, final_ay_skx = relax_phase(spins_skx, L, H_scaled, A_scaled, "SkX", ax_in=ax_skx, ay_in=ay_skx, live_plot=live_plot, live_mode=live_mode, max_dt=max_dt, cfl_factor=cfl_factor, visualize_scaling=visualize_scaling)
     results["SkX"] = f_skx
@@ -487,13 +511,15 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
     # 2. Square Cell 
     print("Initializing SC...")
     spins_sc, ax_sc, ay_sc = init_SC(L)
+    sc_ansatz_path = ansatz_dir / "ansatz_SC.npz"
     if save_outputs or plot_ansatz:
-        np.savez("output/LLG/Ansatze/ansatz_SC.npz", spins=spins_sc, ax=ax_sc, ay=ay_sc)
+        ensure_parent_dir(sc_ansatz_path)
+        np.savez(sc_ansatz_path, spins=spins_sc, ax=ax_sc, ay=ay_sc)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
             print("Displaying SC Ansatz...")
-            plot_periodic_structure("output/LLG/Ansatze/ansatz_SC.npz", tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_sc, ay=ay_sc)
+            plot_periodic_structure(str(sc_ansatz_path), tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_sc, ay=ay_sc)
         except: pass
     spins_sc, f_sc, final_ax_sc, final_ay_sc = relax_phase(spins_sc, L, H_scaled, A_scaled, "SC", ax_in=ax_sc, ay_in=ay_sc, live_plot=live_plot, live_mode=live_mode, max_dt=max_dt, cfl_factor=cfl_factor, visualize_scaling=visualize_scaling)
     results["SC"] = f_sc
@@ -501,13 +527,15 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
     # 3. Spiral Phase
     print("Initializing SP...")
     spins_sp, ax_sp, ay_sp = init_SP(L)
+    sp_ansatz_path = ansatz_dir / "ansatz_SP.npz"
     if save_outputs or plot_ansatz:
-        np.savez("output/LLG/Ansatze/ansatz_SP.npz", spins=spins_sp, ax=ax_sp, ay=ay_sp)
+        ensure_parent_dir(sp_ansatz_path)
+        np.savez(sp_ansatz_path, spins=spins_sp, ax=ax_sp, ay=ay_sp)
     if plot_ansatz:
         try:
             from periodic_plotting import plot_periodic_structure
             print("Displaying SP Ansatz...")
-            plot_periodic_structure("output/LLG/Ansatze/ansatz_SP.npz", tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_sp, ay=ay_sp)
+            plot_periodic_structure(str(sp_ansatz_path), tiles_x=2, tiles_y=2, display_mode="quiver", ax=ax_sp, ay=ay_sp)
         except: pass
     spins_sp, f_sp, final_ax_sp, final_ay_sp = relax_phase(spins_sp, L, H_scaled, A_scaled, "SP", ax_in=ax_sp, ay_in=ay_sp, live_plot=live_plot, live_mode=live_mode, max_dt=max_dt, cfl_factor=cfl_factor, visualize_scaling=visualize_scaling)
     results["SP"] = f_sp
@@ -574,8 +602,9 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
             best_spins[:, :, 2] = nz
             
     if best_spins is not None:
-        out_name = f"output/LLG/Groundstates/LLG_groundstate_L{L}_A{A_scaled:.2f}_H{H_scaled:.2f}.npz"
+        out_name = groundstate_dir / f"LLG_groundstate_L{L}_A{A_scaled:.2f}_H{H_scaled:.2f}.npz"
         if save_outputs or plot_groundstate:
+            ensure_parent_dir(out_name)
             np.savez(out_name, spins=best_spins, ax=best_ax, ay=best_ay)
             print(f"Saved numerical ground state to '{out_name}'")
         
@@ -584,7 +613,7 @@ def compare_phases(H_scaled=0.08, A_scaled=0.5, L=64, npy_file=None, plot_ansatz
             try:
                 from periodic_plotting import plot_periodic_structure
                 print("Launching periodic plot...")
-                plot_periodic_structure(out_name, tiles_x=2, tiles_y=2, display_mode="quiver", ax=best_ax, ay=best_ay)
+                plot_periodic_structure(str(out_name), tiles_x=2, tiles_y=2, display_mode="quiver", ax=best_ax, ay=best_ay)
             except Exception as e:
                 print(f"Could not load periodic_plotting to display: {e}")
     
@@ -603,7 +632,8 @@ if __name__ == "__main__":
     parser.add_argument("--plot-groundstate", action="store_true", help="Plot the final ground state configuration at the end")
     parser.add_argument("--max-dt", type=float, default=0.05, help="Maximum integration timestep")
     parser.add_argument("--cfl", type=float, default=0.25, help="CFL stability factor for dynamic timestep")
+    parser.add_argument("--output-root", type=str, default=None, help="Root directory for outputs, e.g. $SCRATCH/skyrmion_runs")
     
     args = parser.parse_args()
     
-    compare_phases(H_scaled=args.H, A_scaled=args.A, L=args.L, npy_file=args.npy, plot_ansatz=args.plot_ansatz, live_plot=args.live_plot, live_mode=args.live_mode, max_dt=args.max_dt, cfl_factor=args.cfl, visualize_scaling=args.vis_scale, plot_groundstate=args.plot_groundstate)
+    compare_phases(H_scaled=args.H, A_scaled=args.A, L=args.L, npy_file=args.npy, plot_ansatz=args.plot_ansatz, live_plot=args.live_plot, live_mode=args.live_mode, max_dt=args.max_dt, cfl_factor=args.cfl, visualize_scaling=args.vis_scale, plot_groundstate=args.plot_groundstate, output_root=args.output_root)
